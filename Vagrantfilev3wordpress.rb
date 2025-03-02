@@ -89,19 +89,40 @@ network:
           - 8.8.4.4
 EOF
 
-    # Update
-    apt-get update
-    apt-get upgrade -y
-    apt-get install -y openvswitch-switch apache2 libapache2-mod-php mysql-server php php-bcmath php-curl php-imagick php-intl php-json php-mbstring php-mysql php-xml php-zip
+# Fix Netplan file permissions
+chmod 644 /etc/netplan/50-vagrant.yaml
+sleep 2 && netplan apply
 
-    # Disable Cloud-Init for network management
-    echo "network: {config: disabled}" | sudo tee /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+# Disable Cloud-Init for network management
+echo "network: {config: disabled}" | sudo tee /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
 
-    # Create the directory if it doesn't exist
-    sudo mkdir -p /etc/apache2/sites-available
+# Update
+apt-get update
+apt-get upgrade -y
+apt-get install -y openvswitch-switch \
+# Download dependencies 
+sudo apt install -y apache2 \
+                 ghostscript \
+                 libapache2-mod-php \
+                 mysql-server \
+                 php \
+                 php-bcmath \
+                 php-curl \
+                 php-imagick \
+                 php-intl \
+                 php-json \
+                 php-mbstring \
+                 php-mysql \
+                 php-xml \
+                 php-zip
 
-    # Install and configure WordPress
-    sudo tee /etc/apache2/sites-available/wordpress.conf <<EOF
+
+
+# Create the directory if it doesn't exist
+sudo mkdir -p /etc/apache2/sites-available
+
+# Install and configure WordPress
+sudo tee /etc/apache2/sites-available/wordpress.conf <<EOF
 <VirtualHost *:80>
     DocumentRoot /srv/www/wordpress
     <Directory /srv/www/wordpress>
@@ -117,39 +138,36 @@ EOF
 </VirtualHost>
 EOF
 
-    # Fix Netplan file permissions
-    chmod 644 /etc/netplan/50-vagrant.yaml
-    sleep 2 && netplan apply
+#Create the installation directory and download the file from WordPress.org:
+sudo mkdir -p /srv/www
+sudo chown www-data: /srv/www
+curl https://wordpress.org/latest.tar.gz | sudo -u www-data tar zx -C /srv/www
 
-    # Install Apache
-    sudo mkdir -p /srv/www
-    sudo chown www-data: /srv/www
-    curl https://wordpress.org/latest.tar.gz | sudo -u www-data tar zx -C /srv/www
+# Enable Open vSwitch
+systemctl enable --now openvswitch-switch
 
-    # Enable WordPress site
-    sudo a2ensite wordpress
-    sudo a2enmod rewrite
-    sudo a2dissite 000-default
-    sudo systemctl restart apache2
+# Enable WordPress site
+sudo a2ensite wordpress
+sudo a2enmod rewrite
+sudo a2dissite 000-default
+sudo systemctl restart apache2
 
-    # Enable Open vSwitch
-    systemctl enable --now openvswitch-switch
+# Create database and user
+mysql -u root <<EOF
+CREATE DATABASE wordpress;
+CREATE USER wordpress@localhost IDENTIFIED BY 'devops';
+GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER ON wordpress.* TO wordpress@localhost;
+FLUSH PRIVILEGES;
 
-    # Create database and user
-    mysql -u root <<EOF
-    CREATE DATABASE wordpress;
-    CREATE USER wordpress@localhost IDENTIFIED BY 'wordpress';
-    GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER ON wordpress.* TO wordpress@localhost;
-    FLUSH PRIVILEGES;
 EOF
 
-    # Configure WordPress
-    sudo -u www-data cp /srv/www/wordpress/wp-config-sample.php /srv/www/wordpress/wp-config.php
-    sudo -u www-data sed -i 's/database_name_here/wordpress/' /srv/www/wordpress/wp-config.php
-    sudo -u www-data sed -i 's/username_here/wordpress/' /srv/www/wordpress/wp-config.php
-    sudo -u www-data sed -i 's/password_here/wordpress/' /srv/www/wordpress/wp-config.php
+# Configure WordPress
+sudo -u www-data cp /srv/www/wordpress/wp-config-sample.php /srv/www/wordpress/wp-config.php
+sudo -u www-data sed -i 's/database_name_here/wordpress/' /srv/www/wordpress/wp-config.php
+sudo -u www-data sed -i 's/username_here/wordpress/' /srv/www/wordpress/wp-config.php
+sudo -u www-data sed -i 's/password_here/devops/' /srv/www/wordpress/wp-config.php
 
-    #!/bin/bash
+    #insert the keys in wp-config.php
 
     # Define paths
     CONFIG_FILE="/srv/www/wordpress/wp-config.php"
@@ -218,8 +236,6 @@ EOF
 
     # Restart Apache
     sudo systemctl restart apache2
-
-
 
   SHELL
 end
